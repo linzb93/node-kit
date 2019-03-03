@@ -3,6 +3,7 @@ const shtml2Html = require('shtml2html');
 const fs = require('fs');
 const del = require('del');
 const babel = require('babel-core');
+const browserSync = require('browser-sync').create();
 
 const root = 'src';
 
@@ -11,7 +12,7 @@ function writeFile(path, data, callback) {
     if (fs.existsSync(path)) {
         fs.writeFile(path, data, callback);
     } else {
-        let dir = path.split('/').slice(0, -1).join('/');
+        const dir = path.split('/').slice(0, -1).join('/');
         fs.mkdir(dir, {recursive: true}, err => {
             if (err) {
                 throw err;
@@ -37,6 +38,11 @@ function readFileRecursive(dir, callback) {
             });
         }
     });
+}
+
+// 判断文件类型
+function getFileType(fileName) {
+    return fileName.split('.').slice(-1)[0];
 }
 
 // 先移除dist文件夹
@@ -82,7 +88,7 @@ function sassRender() {
 
 // shtml编译成html
 function shtmlCompile() {
-    shtml2Html(root, 'dist', root, err => {
+    shtml2Html(root, 'dist', root, () => {
         console.log('shtml编译成功！');
     });
 }
@@ -92,7 +98,7 @@ function babelJsCompile() {
     readFileRecursive(root, (dir, file) => {
         if (file.name.endsWith('.js')) {
             babel.transformFile(dir + '/' + file.name, (err, ret) => {
-                var destFile = (dir + '/' + file.name).replace(root + '/', 'dist/');
+                const destFile = (dir + '/' + file.name).replace(root + '/', 'dist/');
                 writeFile(destFile, ret.code, () => {
                     console.log('babel编译成功！');
                 });
@@ -100,3 +106,35 @@ function babelJsCompile() {
         }
     });
 }
+
+/**
+ * 文件变化时浏览器重载
+ * 后面尽量把shtml的include依赖串起来，include文件夹里的文件有修改时，不要所有文件都编译。
+ * 其他文件有改动时都编译
+ */
+browserSync.init({
+    server: './dist'
+});
+
+browserSync.watch('./src/**', (event, fileName) => {
+    if (event === 'add' || event === 'change') {
+        if (getFileType(fileName) === 'scss') {
+            if (fileName.split('/').slice(-1).indexOf('_') !== 0) {
+                sassRenderEachFile(fileName);
+            } else {
+                sassRender();
+            }
+        } else if (getFileType(fileName) === 'shtml') {
+            shtmlCompile();
+        } else if (getFileType(fileName) === 'js') {
+            babel.transformFile(fileName, (err, ret) => {
+                const destFile = fileName.replace('src/', 'dist/');
+                writeFile(destFile, ret.code, () => {
+                    console.log('babel编译成功！');
+                });
+            })
+        }
+    }
+
+    browserSync.reload();
+});

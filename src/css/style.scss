@@ -3,7 +3,8 @@
 .a {
     width: 30px;
     .b {
-        @include wid(30px);
+        @include wid(130px);
         height: 30px;
+        border: 1px solid #f00;
     }
 }
