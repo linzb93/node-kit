@@ -1,8 +1,11 @@
+const fs = require('fs');
+const path = require('path');
 const sass = require('node-sass');
 const shtml2Html = require('shtml2html');
-const fs = require('fs');
 const del = require('del');
 const babel = require('babel-core');
+// const MemoryFileSystem = require("memory-fs");
+// const mfs = new MemoryFileSystem();
 const browserSync = require('browser-sync').create();
 
 const root = 'src';
@@ -25,24 +28,20 @@ function writeFile(path, data, callback) {
 
 // 递归搜索文件
 function readFileRecursive(dir, callback) {
-    fs.readdir(dir, {withFileTypes: true}, (err, files) => {
+    fs.readdir(dir, (err, targets) => {
         if (err) {
             throw err;
         } else {
-            files.forEach(file => {
-                if (file.isDirectory()) {
-                    readFileRecursive(dir + '/' + file.name, callback);
+            targets.forEach(target => {
+                const dest = dir + '/' + target;
+                if (fs.statSync(dest).isDirectory()) {
+                    readFileRecursive(dest , callback);
                 } else {
-                    callback(dir, file);
+                    callback(dir, target);
                 }
-            });
+            })
         }
     });
-}
-
-// 判断文件类型
-function getFileType(fileName) {
-    return fileName.split('.').slice(-1)[0];
 }
 
 // 先移除dist文件夹
@@ -80,31 +79,45 @@ function sassRenderEachFile(file) {
 }
 function sassRender() {
     readFileRecursive(root, (dir, file) => {
-        if (file.name.endsWith('.scss') && !file.name.startsWith('_')) {
-            sassRenderEachFile(dir + '/' + file.name);
+        if (path.extname(file) === '.scss' && !file.startsWith('_')) {
+            sassRenderEachFile(dir + '/' + file);
         }
     });
 }
 
 // shtml编译成html
-function shtmlCompile() {
-    shtml2Html(root, 'dist', root, () => {
-        console.log('shtml编译成功！');
-    });
+function shtmlCompile(src = root, dest = 'dist') {
+    if (src.split('/').slice(-2) === 'include') {
+        shtmlCompile();
+        shtml2Html(root, 'dist', root, () => {
+            console.log('shtml编译成功！');
+        });
+    } else {
+        shtml2Html(src, dest, root, () => {
+            console.log('shtml编译成功！');
+        });
+    }
 }
 
 // babel
-function babelJsCompile() {
-    readFileRecursive(root, (dir, file) => {
-        if (file.name.endsWith('.js')) {
-            babel.transformFile(dir + '/' + file.name, (err, ret) => {
-                const destFile = (dir + '/' + file.name).replace(root + '/', 'dist/');
-                writeFile(destFile, ret.code, () => {
-                    console.log('babel编译成功！');
-                });
-            })
-        }
-    });
+function babelJsCompile(orginFile) {
+    if (!orginFile) {
+        readFileRecursive(root, (dir, file) => {
+            if (path.extname(file) === '.js') {
+                babelJsEachCompile(dir + '/' + file);
+            }
+        });
+    } else {
+        babelJsEachCompile(orginFile);
+    }
+}
+function babelJsEachCompile(file) {
+    babel.transformFile(file, (err, ret) => {
+        const destFile = file.replace(root + '/', 'dist/');
+        writeFile(destFile, ret.code, () => {
+            console.log('babel编译成功！');
+        });
+    })
 }
 
 /**
@@ -117,23 +130,22 @@ browserSync.init({
 });
 
 browserSync.watch('./src/**', (event, fileName) => {
-    if (event === 'add' || event === 'change') {
-        if (getFileType(fileName) === 'scss') {
+    if (event === 'change') {
+        if (path.extname(fileName) === '.scss') {
             if (fileName.split('/').slice(-1).indexOf('_') !== 0) {
                 sassRenderEachFile(fileName);
             } else {
                 sassRender();
             }
-        } else if (getFileType(fileName) === 'shtml') {
+        } else if (path.extname(fileName) === '.shtml') {
             shtmlCompile();
-        } else if (getFileType(fileName) === 'js') {
-            babel.transformFile(fileName, (err, ret) => {
-                const destFile = fileName.replace('src/', 'dist/');
-                writeFile(destFile, ret.code, () => {
-                    console.log('babel编译成功！');
-                });
-            })
+        } else if (path.extname(fileName) === '.js') {
+            babelJsCompile(fileName);
         }
+    } else if (event === 'add') {
+        // 添加
+    } else if (event == 'unlink') {
+        // 删除
     }
 
     browserSync.reload();
