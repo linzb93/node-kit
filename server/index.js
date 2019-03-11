@@ -4,23 +4,21 @@ const sass = require('node-sass');
 const shtml2Html = require('shtml2html');
 const del = require('del');
 const babel = require('babel-core');
-// const MemoryFileSystem = require("memory-fs");
-// const mfs = new MemoryFileSystem();
 const browserSync = require('browser-sync').create();
 
 const root = 'src';
+const dist = 'dist';
 
 // 如果没有文件，先创建文件夹
-function writeFile(path, data, callback) {
-    if (fs.existsSync(path)) {
-        fs.writeFile(path, data, callback);
+function writeFile(file, data, callback) {
+    if (fs.existsSync(file)) {
+        fs.writeFile(file, data, callback);
     } else {
-        const dir = path.split('/').slice(0, -1).join('/');
-        fs.mkdir(dir, {recursive: true}, err => {
+        fs.mkdir(path.dirname(file), {recursive: true}, err => {
             if (err) {
                 throw err;
             } else {
-                fs.writeFile(path, data, callback);
+                fs.writeFile(file, data, callback);
             }
         });
     }
@@ -28,16 +26,16 @@ function writeFile(path, data, callback) {
 
 // 递归搜索文件
 function readFileRecursive(dir, callback) {
-    fs.readdir(dir, (err, targets) => {
+    fs.readdir(dir, (err, rets) => {
         if (err) {
             throw err;
         } else {
-            targets.forEach(target => {
-                const dest = dir + '/' + target;
+            rets.forEach(ret => {
+                const dest = path.join(dir, ret);
                 if (fs.statSync(dest).isDirectory()) {
-                    readFileRecursive(dest , callback);
+                    readFileRecursive(dest, callback);
                 } else {
-                    callback(dir, target);
+                    callback(dir, ret);
                 }
             })
         }
@@ -49,8 +47,6 @@ del('dist/**').then(() => {
     sassRender();
     shtmlCompile();
     babelJsCompile();
-}).catch(err => {
-    throw err;
 });
 
 // sass编译
@@ -64,29 +60,28 @@ function sassRenderEachFile(file) {
             throw err;
         } else {
             let destFile = file
-            .replace(root + '/', 'dist/')
+            .replace(root + '/', dist + '/')
             .replace(/.scss$/, '.css');
             writeFile(destFile, result.css, writeErr => {
-                    if (writeErr) {
-                        throw writeErr;
-                    } else {
-                        console.log(destFile + '编译成功');
-                    }
+                if (writeErr) {
+                    throw writeErr;
+                } else {
+                    console.log(destFile + '编译成功');
                 }
-            );
+            });
         }
     });
 }
 function sassRender() {
-    readFileRecursive(root, (dir, file) => {
-        if (path.extname(file) === '.scss' && !file.startsWith('_')) {
-            sassRenderEachFile(dir + '/' + file);
+    readFileRecursive(root, (dir, fileName) => {
+        if (path.extname(fileName) === '.scss' && !fileName.startsWith('_')) {
+            sassRenderEachFile(path.join(dir, fileName));
         }
     });
 }
 
 // shtml编译成html
-function shtmlCompile(src = root, dest = 'dist') {
+function shtmlCompile(src = root, dest = dist) {
     if (src.split('/').slice(-2) === 'include') {
         shtmlCompile();
         shtml2Html(root, 'dist', root, () => {
@@ -100,20 +95,23 @@ function shtmlCompile(src = root, dest = 'dist') {
 }
 
 // babel
-function babelJsCompile(orginFile) {
-    if (!orginFile) {
-        readFileRecursive(root, (dir, file) => {
-            if (path.extname(file) === '.js') {
-                babelJsEachCompile(dir + '/' + file);
+function babelJsCompile(file) {
+    if (!file) {
+        readFileRecursive(root, (dir, fileName) => {
+            if (path.extname(fileName) === '.js') {
+                babelJsEachCompile(path.join(dir, fileName));
             }
         });
     } else {
-        babelJsEachCompile(orginFile);
+        babelJsEachCompile(file);
     }
 }
 function babelJsEachCompile(file) {
     babel.transformFile(file, (err, ret) => {
-        const destFile = file.replace(root + '/', 'dist/');
+        if (err) {
+            throw err;
+        }
+        const destFile = file.replace(root + '/', dist + '/');
         writeFile(destFile, ret.code, () => {
             console.log('babel编译成功！');
         });
@@ -125,28 +123,36 @@ function babelJsEachCompile(file) {
  * 后面尽量把shtml的include依赖串起来，include文件夹里的文件有修改时，不要所有文件都编译。
  * 其他文件有改动时都编译
  */
-browserSync.init({
-    server: './dist'
-});
-
-browserSync.watch('./src/**', (event, fileName) => {
-    if (event === 'change') {
-        if (path.extname(fileName) === '.scss') {
-            if (fileName.split('/').slice(-1).indexOf('_') !== 0) {
-                sassRenderEachFile(fileName);
+if (process.env.NODE_ENV === 'development') {
+    browserSync.init({
+        server: './' + dist
+    });
+    
+    browserSync.watch(root + '/**', (event, file) => {
+        if (event === 'change') {
+            if (path.extname(file) === '.scss') {
+                if (path.basename(file).indexOf('_') !== 0) {
+                    sassRenderEachFile(file);
+                } else {
+                    sassRender();
+                }
+            } else if (path.extname(file) === '.shtml') {
+                shtmlCompile();
+            } else if (path.extname(file) === '.js') {
+                babelJsCompile(file);
             } else {
-                sassRender();
+                fs.copyFileSync(file, file.replace(root + '/', dist + '/'));
             }
-        } else if (path.extname(fileName) === '.shtml') {
-            shtmlCompile();
-        } else if (path.extname(fileName) === '.js') {
-            babelJsCompile(fileName);
+        } else if (event === 'add') {
+            // 添加
+            /**
+             * 添加和删除同理，引用类scss不变，非引用类scss编译，引用类shtml不变，非引用类shtml编译，js编译，其他文件复制。
+             */
+        } else if (event == 'unlink') {
+            // 删除
+            // fs.unlinkSync(file.replace(root + '/', dist + '/'));
         }
-    } else if (event === 'add') {
-        // 添加
-    } else if (event == 'unlink') {
-        // 删除
-    }
-
-    browserSync.reload();
-});
+    
+        browserSync.reload();
+    });
+}
