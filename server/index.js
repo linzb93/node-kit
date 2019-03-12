@@ -6,8 +6,8 @@ const del = require('del');
 const babel = require('babel-core');
 const browserSync = require('browser-sync').create();
 
-const root = 'src';
-const dist = 'dist';
+const root = 'src'; // 源文件夹
+const dist = 'dist';// 目标文件夹
 
 // 如果没有文件，先创建文件夹
 function writeFile(file, data, callback) {
@@ -119,8 +119,6 @@ function babelJsEachCompile(file) {
 
 /**
  * 文件变化时浏览器重载
- * 后面尽量把shtml的include依赖串起来，include文件夹里的文件有修改时，不要所有文件都编译。
- * 其他文件有改动时都编译
  */
 if (process.env.NODE_ENV === 'development') {
     browserSync.init({
