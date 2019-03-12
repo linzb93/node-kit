@@ -83,7 +83,6 @@ function sassRender() {
 // shtml编译成html
 function shtmlCompile(src = root, dest = dist) {
     if (src.split('/').slice(-2) === 'include') {
-        shtmlCompile();
         shtml2Html(root, 'dist', root, () => {
             console.log('shtml编译成功！');
         });
@@ -129,28 +128,40 @@ if (process.env.NODE_ENV === 'development') {
     });
     
     browserSync.watch(root + '/**', (event, file) => {
+        const extname = path.extname(file);
+        const filename = path.basename(file);
+        const destFile = file.replace(root + '/', dist + '/');
         if (event === 'change') {
-            if (path.extname(file) === '.scss') {
-                if (path.basename(file).indexOf('_') !== 0) {
+            if (extname === '.scss') {
+                if (!filename.startsWith('_')) {
                     sassRenderEachFile(file);
                 } else {
                     sassRender();
                 }
-            } else if (path.extname(file) === '.shtml') {
-                shtmlCompile();
-            } else if (path.extname(file) === '.js') {
+            } else if (extname === '.shtml') {
+                
+            } else if (extname === '.js') {
                 babelJsCompile(file);
             } else {
-                fs.copyFileSync(file, file.replace(root + '/', dist + '/'));
+                fs.copyFileSync(file, destFile);
             }
         } else if (event === 'add') {
             // 添加
             /**
              * 添加和删除同理，引用类scss不变，非引用类scss编译，引用类shtml不变，非引用类shtml编译，js编译，其他文件复制。
              */
+            if (extname === '.scss' && !path.basename(file).startsWith('_')) {
+                sassRenderEachFile(file);
+            } else if (extname === '.shtml' && !file.split('/').slice(-2) === 'include') {
+                shtml2Html(file, destFile);
+            } else if (extname === '.js') {
+                babelJsCompile(file);
+            } else {
+                fs.copyFileSync(file, destFile);
+            }
         } else if (event == 'unlink') {
             // 删除
-            // fs.unlinkSync(file.replace(root + '/', dist + '/'));
+            
         }
     
         browserSync.reload();
