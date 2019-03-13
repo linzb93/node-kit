@@ -1,21 +1,21 @@
 const fs = require('fs');
 const path = require('path');
-const sass = require('node-sass');
-const shtml2Html = require('shtml2html');
 const del = require('del');
-const babel = require('babel-core');
 const browserSync = require('browser-sync').create();
-const readdir   = promisify(fs.readdir);
-const stat      = promisify(fs.stat);
+const s2h = require('shtml2html');
 const root = 'src'; // 源文件夹
 const dist = 'dist';// 目标文件夹
-//TODO: 三件事做完后有个Promise回调
+
+// 检查有未捕捉的promise error
+process.on('unhandledRejection', (reason, p) => {
+    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+});
 
 // 简单实现一个promisify
 function promisify(fn) {
-    return (...args) => {
-        return new Promise((resolve, reject) => {
-            args.push((err, result) => {
+    return (...args) => (
+        new Promise((resolve, reject) => {
+            args.push((err,result) => {
                 if(err) {
                     reject(err);
                 } else {
@@ -23,46 +23,72 @@ function promisify(fn) {
                 }
             });
             fn.apply(null, args);
-        });
-    }
+        })
+    )
 }
+
+// shtml2html做error first兼容处理
+function newS2h(from, to, wwwroot, callback) {
+    return s2h(from, to, wwwroot, callback.bind(this, null));
+}
+const shtml2Html = promisify(newS2h);
+const readdir = promisify(fs.readdir);
+const stat = promisify(fs.stat);
+const pSassRender = promisify(require('node-sass').render);
+const pWriteFile = promisify(fs.writeFile);
+const mkdir = promisify(fs.mkdir);
+const babelTransform = promisify(require('babel-core').transformFile);
 
 // 如果没有文件，先创建文件夹
 function writeFile(file, data, callback) {
     if (fs.existsSync(file)) {
-        fs.writeFile(file, data, callback);
+        return pWriteFile(file, data, callback).catch(err => {
+            throw err;
+        });
     } else {
-        fs.mkdir(path.dirname(file), {recursive: true}, err => {
-            if (err) {
-                throw err;
-            } else {
-                fs.writeFile(file, data, callback);
-            }
+        return mkdir(path.dirname(file), {recursive: true})
+        .then(() => {
+            return pWriteFile(file, data, callback);
+        }).catch(err => {
+            throw err;
         });
     }
 }
 
 // 递归搜索文件
 function readFileRecursive(dir, callback) {
-    readdir(dir).then(files => {
+    return readdir(dir)
+    .then(files => {
         const promiseFilesList = files.map(item => {
             const dest = path.join(dir, item);
-            return stat(dest).then(stats => {
+            return stat(dest)
+            .then(stats => {
                 if (stats.isDirectory()) {
                     return readFileRecursive(dest, callback);
                 }
                 callback(dest);
-            })
+            }).catch(err => {
+                throw err;
+            });
         })
         return Promise.all(promiseFilesList);
+    })
+    .catch(err => {
+        throw err;
     });
 }
 
 // 先移除dist文件夹
 del('dist/**').then(() => {
-    sassReadAll();
-    shtmlCompile();
-    babelJsCompile();
+    Promise.all([
+        sassReadAll(),
+        shtmlCompile(),
+        babelHandler()
+    ]).then(() => {
+        console.log('编译成功');
+    }).catch(err => {
+        throw err;
+    })
 });
 
 // sass编译
@@ -70,22 +96,20 @@ del('dist/**').then(() => {
  * sass编译
  * 深度遍历源文件夹，找到所有的scss格式文件，排除前缀是“_”的scss文件，其他的编译。
  */
-function sassRender(file) {
-    sass.render({file}, (err, result) => {
-        if (err) {
-            throw err;
-        } else {
+function sassRender(files) {
+    const pMap = files.map(file => {
+        pSassRender({file})
+        .then(ret => {
             let destFile = file
-            .replace(root + '/', dist + '/')
+            .replace(new RegExp(`^${root}`), dist)
             .replace(/.scss$/, '.css');
-            writeFile(destFile, result.css, writeErr => {
-                if (writeErr) {
-                    throw writeErr;
-                } else {
-                    console.log(destFile + '编译成功');
-                }
-            });
-        }
+            return writeFile(destFile, ret.css);
+        }).catch(err => {
+            throw err;
+        });
+    });
+    return Promise.all(pMap).catch(err => {
+        throw err;
     });
 }
 function sassReadAll() {
@@ -94,47 +118,57 @@ function sassReadAll() {
         if (path.extname(dest) === '.scss' && !path.basename(dest).startsWith('_')) {
             fileList.push(dest);
         }
-    }).then(function() {
-        sassRender(fileList);
+    }).then(() => {
+        return sassRender(fileList);
+    }).catch(err => {
+        throw err;
     });
 }
 
 // shtml编译成html
 function shtmlCompile(src = root) {
-    const dest = src.replace(root + '/', dist + '/');
+    const dest = src.replace(new RegExp(`^${root}`), dist);
     if (src.split('/').slice(-2) === 'include') {
-        shtml2Html(root, dist, root, () => {
-            console.log('shtml编译成功！');
-        });
-    } else {
-        shtml2Html(src, dest, root, () => {
-            console.log('shtml编译成功！');
-        });
+        return shtml2Html(root, dist, root).catch(err => {
+            throw err;
+        })
     }
+    return shtml2Html(src, dest, root).catch(err => {
+        throw err;
+    })
 }
 
 // babel
-function babelJsCompile(file) {
+function babelHandler(file) {
+    const fileList = [];
     if (!file) {
-        readFileRecursive(root, (dir, fileName) => {
-            if (path.extname(fileName) === '.js') {
-                babelJsEachCompile(path.join(dir, fileName));
+        return readFileRecursive(root, dest => {
+            if (path.extname(dest) === '.js') {
+                fileList.push(dest);
             }
-        });
+        }).then(() => {
+            return babelCompile(fileList);
+        }).catch(err => {
+            throw err;
+        })
     } else {
-        babelJsEachCompile(file);
+        fileList.push(file);
+        return babelCompile(fileList).catch(err => {
+            throw err;
+        });
     }
 }
-function babelJsEachCompile(file) {
-    babel.transformFile(file, (err, ret) => {
-        if (err) {
+function babelCompile(files) {
+    let pMap = files.map(file => {
+        return babelTransform(file)
+        .then(ret => {
+            const destFile = file.replace(new RegExp(`^${root}`), dist);
+            return writeFile(destFile, ret.code);
+        }).catch(err => {
             throw err;
-        }
-        const destFile = file.replace(root + '/', dist + '/');
-        writeFile(destFile, ret.code, () => {
-            console.log('babel编译成功！');
         });
     })
+    return Promise.all(pMap);
 }
 
 /**
