@@ -4,6 +4,7 @@
     "build": "cross-env NODE_ENV=production node server"
   },
   "dependencies": {
+    "autoprefixer": "^9.4.10",
     "babel-core": "^6.26.3",
     "babel-plugin-add-module-exports": "^0.2.1",
     "babel-plugin-syntax-async-generators": "^6.13.0",
@@ -15,6 +16,7 @@
     "cross-env": "^5.1.5",
     "del": "^3.0.0",
     "node-sass": "^4.11.0",
+    "shelljs": "^0.8.3",
     "shtml2html": "^1.0.5"
   }
 }

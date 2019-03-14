@@ -3,6 +3,8 @@ const path = require('path');
 const del = require('del');
 const browserSync = require('browser-sync').create();
 const s2h = require('shtml2html');
+const shell = require('shelljs');
+
 const root = 'src'; // 源文件夹
 const dist = 'dist';// 目标文件夹
 
@@ -37,12 +39,14 @@ const stat = promisify(fs.stat);
 const pSassRender = promisify(require('node-sass').render);
 const pWriteFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
+const open = promisify(fs.open);
 const babelTransform = promisify(require('babel-core').transformFile);
 
 // 如果没有文件，先创建文件夹
 function writeFile(file, data, callback) {
     if (fs.existsSync(file)) {
-        return pWriteFile(file, data, callback).catch(err => {
+        return pWriteFile(file, data, callback)
+        .catch(err => {
             throw err;
         });
     } else {
@@ -78,7 +82,7 @@ function readFileRecursive(dir, callback) {
     });
 }
 
-// 先移除dist文件夹
+先移除dist文件夹
 del('dist/**').then(() => {
     Promise.all([
         sassReadAll(),
@@ -86,9 +90,21 @@ del('dist/**').then(() => {
         babelHandler()
     ]).then(() => {
         console.log('编译成功');
+        if (process.env.NODE_ENV === 'development') {
+            startServer();
+        } else if (process.env.NODE_ENV === 'production') {
+            // 打包完成后打开文件夹
+            // open(path.join(process.cwd(), dist), 'a')
+            // .then(() => {})
+            // .catch(err => {
+            //     if (err) {
+            //         throw err;
+            //     }
+            // })
+        }
     }).catch(err => {
         throw err;
-    })
+    });
 });
 
 // sass编译
@@ -174,59 +190,56 @@ function babelCompile(files) {
 /**
  * 文件变化时浏览器重载
  */
-// if (process.env.NODE_ENV === 'development') {
-//     browserSync.init({
-//         server: './' + dist
-//     });
+function startServer() {
+    browserSync.init({
+        server: './' + dist
+    });
     
-//     browserSync.watch(root + '/**', (event, file) => {
-//         const extname = path.extname(file);
-//         const filename = path.basename(file);
-//         const destFile = file.replace(root + '/', dist + '/');
-//         if (event === 'change') {
-//             if (extname === '.scss') {
-//                 if (!filename.startsWith('_')) {
-//                     sassRenderEachFile(file);
-//                 } else {
-//                     sassRender();
-//                 }
-//             } else if (extname === '.shtml') {
-//                 shtmlCompile(file);
-//             } else if (extname === '.js') {
-//                 babelJsCompile(file);
-//             } else {
-//                 fs.copyFileSync(file, destFile);
-//             }
-//         } else if (event === 'add') {
-//             // 添加
-//             /**
-//              * 添加和删除同理，引用类scss不变，非引用类scss编译，引用类shtml不变，非引用类shtml编译，js编译，其他文件复制。
-//              */
-//             if (extname === '.scss' && !path.basename(file).startsWith('_')) {
-//                 sassRenderEachFile(file);
-//             } else if (extname === '.shtml' && !file.split('/').slice(-2) === 'include') {
-//                 shtml2Html(file);
-//             } else if (extname === '.js') {
-//                 babelJsCompile(file);
-//             } else if (!['.scss', '.js', '.shtml'].includes(extname)) {
-//                 fs.copyFileSync(file, destFile);
-//             }
-//         } else if (event == 'unlink') {
-//             // 删除
-//             const isUnlinkScss = extname === '.scss' && !path.basename(file).startsWith('_');
-//             const isUnlinkShtml = extname === '.shtml' && !file.split('/').slice(-2) === 'include';
-//             const isUnlinkJs = extname === 'js';
-//             const isUnlinkOtherFile = !['.scss', '.js', '.shtml'].includes(extname);
+    browserSync.watch(root + '/**', (event, file) => {
+        const extname = path.extname(file);
+        const filename = path.basename(file);
+        const destFile = file.replace(root + '/', dist + '/');
+        if (event === 'change') {
+            if (extname === '.scss') {
+                if (!filename.startsWith('_')) {
+                    sassRenderEachFile(file);
+                } else {
+                    sassRender();
+                }
+            } else if (extname === '.shtml') {
+                shtmlCompile(file);
+            } else if (extname === '.js') {
+                babelJsCompile(file);
+            } else {
+                fs.copyFileSync(file, destFile);
+            }
+        } else if (event === 'add') {
+            // 添加
+            if (extname === '.scss' && !path.basename(file).startsWith('_')) {
+                sassRenderEachFile(file);
+            } else if (extname === '.shtml' && !file.split('/').slice(-2) === 'include') {
+                shtml2Html(file);
+            } else if (extname === '.js') {
+                babelJsCompile(file);
+            } else if (!['.scss', '.js', '.shtml'].includes(extname)) {
+                fs.copyFileSync(file, destFile);
+            }
+        } else if (event == 'unlink') {
+            // 删除
+            const isUnlinkScss = extname === '.scss' && !path.basename(file).startsWith('_');
+            const isUnlinkShtml = extname === '.shtml' && !file.split('/').slice(-2) === 'include';
+            const isUnlinkJs = extname === 'js';
+            const isUnlinkOtherFile = !['.scss', '.js', '.shtml'].includes(extname);
 
-//             if (isUnlinkScss || isUnlinkShtml || isUnlinkJs || isUnlinkOtherFile) {
-//                 fs.unlinkSync(file, err => {
-//                     if (err) {
-//                         throw err;
-//                     }
-//                 });
-//             }
-//         }
+            if (isUnlinkScss || isUnlinkShtml || isUnlinkJs || isUnlinkOtherFile) {
+                fs.unlinkSync(file, err => {
+                    if (err) {
+                        throw err;
+                    }
+                });
+            }
+        }
     
-//         browserSync.reload();
-//     });
-// }
+        browserSync.reload();
+    });
+}
