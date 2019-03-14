@@ -39,7 +39,6 @@ const stat = promisify(fs.stat);
 const pSassRender = promisify(require('node-sass').render);
 const pWriteFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
-const open = promisify(fs.open);
 const babelTransform = promisify(require('babel-core').transformFile);
 
 // 如果没有文件，先创建文件夹
@@ -82,30 +81,26 @@ function readFileRecursive(dir, callback) {
     });
 }
 
-先移除dist文件夹
-del('dist/**').then(() => {
-    Promise.all([
+// 先移除dist文件夹
+del('dist/**')
+.then(() => {
+    return Promise.all([
         sassReadAll(),
         shtmlCompile(),
         babelHandler()
-    ]).then(() => {
-        console.log('编译成功');
-        if (process.env.NODE_ENV === 'development') {
-            startServer();
-        } else if (process.env.NODE_ENV === 'production') {
-            // 打包完成后打开文件夹
-            // open(path.join(process.cwd(), dist), 'a')
-            // .then(() => {})
-            // .catch(err => {
-            //     if (err) {
-            //         throw err;
-            //     }
-            // })
-        }
-    }).catch(err => {
-        throw err;
-    });
-});
+    ]);
+})
+.then(() => {
+    if (process.env.NODE_ENV === 'development') {
+        startServer();
+    } else if (process.env.NODE_ENV === 'production') {
+        // 打包完成后打开项目根目录
+        shell.exec('open .');
+    }
+})
+.catch(err => {
+    throw err;
+});;
 
 // sass编译
 /**
@@ -113,7 +108,8 @@ del('dist/**').then(() => {
  * 深度遍历源文件夹，找到所有的scss格式文件，排除前缀是“_”的scss文件，其他的编译。
  */
 function sassRender(files) {
-    const pMap = files.map(file => {
+    const fileRet = Array.isArray(files) ? files : [files];
+    const pMap = fileRet.map(file => {
         pSassRender({file})
         .then(ret => {
             let destFile = file
@@ -175,7 +171,8 @@ function babelHandler(file) {
     }
 }
 function babelCompile(files) {
-    let pMap = files.map(file => {
+    const fileRet = Array.isArray(files) ? files : [files];
+    let pMap = fileRet.map(file => {
         return babelTransform(file)
         .then(ret => {
             const destFile = file.replace(new RegExp(`^${root}`), dist);
@@ -192,35 +189,36 @@ function babelCompile(files) {
  */
 function startServer() {
     browserSync.init({
-        server: './' + dist
+        server: `./${dist}`
     });
     
-    browserSync.watch(root + '/**', (event, file) => {
+    browserSync.watch(`${root}/**`, {ignoreInitial: true}, (event, file) => {
+        // console.log(event, file);
         const extname = path.extname(file);
         const filename = path.basename(file);
-        const destFile = file.replace(root + '/', dist + '/');
+        const destFile = file.replace(new RegExp(`^${root}`), dist);;
         if (event === 'change') {
             if (extname === '.scss') {
                 if (!filename.startsWith('_')) {
-                    sassRenderEachFile(file);
+                    sassRender(file).then(() => {browserSync.reload();});
                 } else {
-                    sassRender();
+                    sassReadAll().then(() => {browserSync.reload();});
                 }
             } else if (extname === '.shtml') {
-                shtmlCompile(file);
+                shtmlCompile(file).then(() => {browserSync.reload();});
             } else if (extname === '.js') {
-                babelJsCompile(file);
+                babelCompile(file).then(() => {browserSync.reload();});
             } else {
                 fs.copyFileSync(file, destFile);
             }
         } else if (event === 'add') {
             // 添加
             if (extname === '.scss' && !path.basename(file).startsWith('_')) {
-                sassRenderEachFile(file);
+                sassRender(file);
             } else if (extname === '.shtml' && !file.split('/').slice(-2) === 'include') {
                 shtml2Html(file);
             } else if (extname === '.js') {
-                babelJsCompile(file);
+                babelCompile(file);
             } else if (!['.scss', '.js', '.shtml'].includes(extname)) {
                 fs.copyFileSync(file, destFile);
             }
@@ -232,14 +230,18 @@ function startServer() {
             const isUnlinkOtherFile = !['.scss', '.js', '.shtml'].includes(extname);
 
             if (isUnlinkScss || isUnlinkShtml || isUnlinkJs || isUnlinkOtherFile) {
-                fs.unlinkSync(file, err => {
+                fs.unlink(file, err => {
                     if (err) {
                         throw err;
                     }
                 });
             }
+        } else if (event === 'unlinkDir') {
+            fs.rmdir(file, err => {
+                if (err) {
+                    throw err;
+                }
+            });
         }
-    
-        browserSync.reload();
     });
 }
