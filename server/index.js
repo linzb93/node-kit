@@ -95,7 +95,7 @@ del('dist/**')
         startServer();
     } else if (process.env.NODE_ENV === 'production') {
         // 打包完成后打开项目根目录
-        shell.exec('open .');
+        shell.exec('open .', {silent: true});
     }
 })
 .catch(err => {
