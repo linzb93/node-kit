@@ -3,6 +3,10 @@
     "start": "cross-env NODE_ENV=development node server",
     "build": "cross-env NODE_ENV=production node server"
   },
+  "browserslist": [
+    "Chrome > 20",
+    "not ie <= 8"
+  ],
   "dependencies": {
     "autoprefixer": "^9.4.10",
     "babel-core": "^6.26.3",
@@ -16,6 +20,7 @@
     "cross-env": "^5.1.5",
     "del": "^3.0.0",
     "node-sass": "^4.11.0",
+    "postcss": "^7.0.14",
     "shelljs": "^0.8.3",
     "shtml2html": "^1.0.5"
   }

@@ -2,9 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const del = require('del');
 const browserSync = require('browser-sync').create();
-const s2h = require('shtml2html');
 const shell = require('shelljs');
-
+const postcss = require('postcss');
+const autoprefixer = require('autoprefixer');
+const cssPrefixer = postcss([autoprefixer]);
 const root = 'src'; // 源文件夹
 const dist = 'dist';// 目标文件夹
 
@@ -17,7 +18,15 @@ process.on('unhandledRejection', (reason, p) => {
 function promisify(fn) {
     return (...args) => (
         new Promise((resolve, reject) => {
-            args.push((err,result) => {
+            args.push((...cbArgs) => {
+                // 做error first兼容处理
+                let err, result;
+                if (cbArgs.length === 2) {
+                    err = cbArgs[0];
+                    result = cbArgs[1];
+                } else if (cbArgs.length === 1) {
+                    result = cbArgs[0];
+                }
                 if(err) {
                     reject(err);
                 } else {
@@ -29,11 +38,8 @@ function promisify(fn) {
     )
 }
 
-// shtml2html做error first兼容处理
-function newS2h(from, to, wwwroot, callback) {
-    return s2h(from, to, wwwroot, callback.bind(this, null));
-}
-const shtml2Html = promisify(newS2h);
+// 函数promise化
+const shtml2Html = promisify(require('shtml2html'));
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const pSassRender = promisify(require('node-sass').render);
@@ -81,50 +87,8 @@ function readFileRecursive(dir, callback) {
     });
 }
 
-// 先移除dist文件夹
-del('dist/**')
-.then(() => {
-    return Promise.all([
-        sassReadAll(),
-        shtmlCompile(),
-        babelHandler()
-    ]);
-})
-.then(() => {
-    if (process.env.NODE_ENV === 'development') {
-        startServer();
-    } else if (process.env.NODE_ENV === 'production') {
-        // 打包完成后打开项目根目录
-        shell.exec('open .', {silent: true});
-    }
-})
-.catch(err => {
-    throw err;
-});;
-
-// sass编译
-/**
- * sass编译
- * 深度遍历源文件夹，找到所有的scss格式文件，排除前缀是“_”的scss文件，其他的编译。
- */
-function sassRender(files) {
-    const fileRet = Array.isArray(files) ? files : [files];
-    const pMap = fileRet.map(file => {
-        pSassRender({file})
-        .then(ret => {
-            let destFile = file
-            .replace(new RegExp(`^${root}`), dist)
-            .replace(/.scss$/, '.css');
-            return writeFile(destFile, ret.css);
-        }).catch(err => {
-            throw err;
-        });
-    });
-    return Promise.all(pMap).catch(err => {
-        throw err;
-    });
-}
-function sassReadAll() {
+// 排除前缀是“_”的scss文件，其他的编译。
+function cssCompile() {
     const fileList = [];
     return readFileRecursive(root, dest => {
         if (path.extname(dest) === '.scss' && !path.basename(dest).startsWith('_')) {
@@ -137,17 +101,44 @@ function sassReadAll() {
     });
 }
 
+function sassRender(files) {
+    const fileRet = Array.isArray(files) ? files : [files];
+    const pMap = fileRet.map(file => {
+        pSassRender({file})
+        .then(ret => {
+            return cssPrefixer.process(ret.css, {from: undefined});
+        })
+        .catch(err => {
+            throw err;
+        })
+        .then(ret => {
+            let destFile = file
+            .replace(new RegExp(`^${root}`), dist)
+            .replace(/.scss$/, '.css');
+            return writeFile(destFile, ret.css);
+        })
+        .catch(err => {
+            if (err) {
+                throw err;
+            }
+        })
+    });
+    return Promise.all(pMap).catch(err => {
+        throw err;
+    });
+}
+
 // shtml编译成html
 function shtmlCompile(src = root) {
     const dest = src.replace(new RegExp(`^${root}`), dist);
     if (src.split('/').slice(-2) === 'include') {
         return shtml2Html(root, dist, root).catch(err => {
             throw err;
-        })
+        });
     }
     return shtml2Html(src, dest, root).catch(err => {
         throw err;
-    })
+    });
 }
 
 // babel
@@ -162,7 +153,7 @@ function babelHandler(file) {
             return babelCompile(fileList);
         }).catch(err => {
             throw err;
-        })
+        });
     } else {
         fileList.push(file);
         return babelCompile(fileList).catch(err => {
@@ -185,15 +176,14 @@ function babelCompile(files) {
 }
 
 /**
- * 文件变化时浏览器重载
- */
+* 文件变化时浏览器重载
+*/
 function startServer() {
     browserSync.init({
         server: `./${dist}`
     });
     
     browserSync.watch(`${root}/**`, {ignoreInitial: true}, (event, file) => {
-        // console.log(event, file);
         const extname = path.extname(file);
         const filename = path.basename(file);
         const destFile = file.replace(new RegExp(`^${root}`), dist);;
@@ -202,7 +192,7 @@ function startServer() {
                 if (!filename.startsWith('_')) {
                     sassRender(file).then(() => {browserSync.reload();});
                 } else {
-                    sassReadAll().then(() => {browserSync.reload();});
+                    cssCompile().then(() => {browserSync.reload();});
                 }
             } else if (extname === '.shtml') {
                 shtmlCompile(file).then(() => {browserSync.reload();});
@@ -212,7 +202,6 @@ function startServer() {
                 fs.copyFileSync(file, destFile);
             }
         } else if (event === 'add') {
-            // 添加
             if (extname === '.scss' && !path.basename(file).startsWith('_')) {
                 sassRender(file);
             } else if (extname === '.shtml' && !file.split('/').slice(-2) === 'include') {
@@ -223,12 +212,12 @@ function startServer() {
                 fs.copyFileSync(file, destFile);
             }
         } else if (event == 'unlink') {
-            // 删除
+            // 删除文件
             const isUnlinkScss = extname === '.scss' && !path.basename(file).startsWith('_');
             const isUnlinkShtml = extname === '.shtml' && !file.split('/').slice(-2) === 'include';
             const isUnlinkJs = extname === 'js';
             const isUnlinkOtherFile = !['.scss', '.js', '.shtml'].includes(extname);
-
+            
             if (isUnlinkScss || isUnlinkShtml || isUnlinkJs || isUnlinkOtherFile) {
                 fs.unlink(file, err => {
                     if (err) {
@@ -237,6 +226,7 @@ function startServer() {
                 });
             }
         } else if (event === 'unlinkDir') {
+            // 删除文件夹
             fs.rmdir(file, err => {
                 if (err) {
                     throw err;
@@ -245,3 +235,25 @@ function startServer() {
         }
     });
 }
+
+// main
+del('dist/**')
+.then(() => {
+    return Promise.all([
+        cssCompile(),
+        shtmlCompile(),
+        babelHandler()
+    ]);
+})
+.then(() => {
+    const env = process.env.NODE_ENV;
+    if (env === 'development') {
+        startServer();
+    } else if (env === 'production') {
+        // 打包完成后打开项目根目录
+        shell.exec('open .', {silent: true});
+    }
+})
+.catch(err => {
+    throw err;
+});;
