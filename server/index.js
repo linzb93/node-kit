@@ -44,7 +44,7 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const pSassRender = promisify(require('node-sass').render);
 const pWriteFile = promisify(fs.writeFile);
-const mkdir = promisify(fs.mkdir);
+const mkdir = promisify(require('mkdirp'));
 const babelTransform = promisify(require('babel-core').transformFile);
 
 // 如果没有文件，先创建文件夹
@@ -55,7 +55,7 @@ function writeFile(file, data, callback) {
             throw err;
         });
     } else {
-        return mkdir(path.dirname(file), {recursive: true})
+        return mkdir(path.dirname(file))
         .then(() => {
             return pWriteFile(file, data, callback);
         }).catch(err => {
