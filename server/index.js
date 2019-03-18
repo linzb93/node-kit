@@ -44,6 +44,7 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const pSassRender = promisify(require('node-sass').render);
 const pWriteFile = promisify(fs.writeFile);
+const pCopyFile = promisify(fs.copyFile);
 const mkdir = promisify(require('mkdirp'));
 const babelTransform = promisify(require('babel-core').transformFile);
 
@@ -58,6 +59,22 @@ function writeFile(file, data, callback) {
         return mkdir(path.dirname(file))
         .then(() => {
             return pWriteFile(file, data, callback);
+        }).catch(err => {
+            throw err;
+        });
+    }
+}
+
+function copyFile(origin, dest, callback) {
+    if (fs.existsSync(dest)) {
+        return pCopyFile(origin, dest, callback)
+        .catch(err => {
+            throw err;
+        });
+    } else {
+        return mkdir(path.dirname(dest))
+        .then(() => {
+            return pCopyFile(origin, dest, callback)
         }).catch(err => {
             throw err;
         });
@@ -87,27 +104,12 @@ function readFileRecursive(dir, callback) {
     });
 }
 
-// 排除前缀是“_”的scss文件，其他的编译。
-function cssCompile() {
-    const fileList = [];
-    return readFileRecursive(root, dest => {
-        if (path.extname(dest) === '.scss' && !path.basename(dest).startsWith('_')) {
-            fileList.push(dest);
-        }
-    }).then(() => {
-        return sassRender(fileList);
-    }).catch(err => {
-        throw err;
-    });
-}
-
+// sass
 function sassRender(files) {
+    console.log(files)
     const fileRet = Array.isArray(files) ? files : [files];
     const pMap = fileRet.map(file => {
         pSassRender({file})
-        .then(ret => {
-            return cssPrefixer.process(ret.css, {from: undefined});
-        })
         .catch(err => {
             throw err;
         })
@@ -118,9 +120,7 @@ function sassRender(files) {
             return writeFile(destFile, ret.css);
         })
         .catch(err => {
-            if (err) {
-                throw err;
-            }
+            throw err;
         })
     });
     return Promise.all(pMap).catch(err => {
@@ -129,38 +129,18 @@ function sassRender(files) {
 }
 
 // shtml编译成html
-function shtmlCompile(src = root) {
-    const dest = src.replace(new RegExp(`^${root}`), dist);
-    if (src.split('/').slice(-2) === 'include') {
-        return shtml2Html(root, dist, root).catch(err => {
+function shtmlCompile(files) {
+    const fileRet = Array.isArray(files) ? files : [files];
+    let pMap = fileRet.map(file => {
+        return shtml2Html(file, file.replace(new RegExp(`^${root}`), dist), root)
+        .catch(err => {
             throw err;
         });
-    }
-    return shtml2Html(src, dest, root).catch(err => {
-        throw err;
-    });
+    })
+    return Promise.all(pMap);
 }
 
 // babel
-function babelHandler(file) {
-    const fileList = [];
-    if (!file) {
-        return readFileRecursive(root, dest => {
-            if (path.extname(dest) === '.js') {
-                fileList.push(dest);
-            }
-        }).then(() => {
-            return babelCompile(fileList);
-        }).catch(err => {
-            throw err;
-        });
-    } else {
-        fileList.push(file);
-        return babelCompile(fileList).catch(err => {
-            throw err;
-        });
-    }
-}
 function babelCompile(files) {
     const fileRet = Array.isArray(files) ? files : [files];
     let pMap = fileRet.map(file => {
@@ -171,6 +151,16 @@ function babelCompile(files) {
         }).catch(err => {
             throw err;
         });
+    })
+    return Promise.all(pMap);
+}
+
+// 复制其他类型的文件
+function copyOtherFiles(files) {
+    const fileRet = Array.isArray(files) ? files : [files];
+    let pMap = fileRet.map(file => {
+        const destFile = file.replace(new RegExp(`^${root}`), dist);
+        return copyFile(file, destFile);
     })
     return Promise.all(pMap);
 }
@@ -192,14 +182,14 @@ function startServer() {
                 if (!filename.startsWith('_')) {
                     sassRender(file).then(() => {browserSync.reload();});
                 } else {
-                    cssCompile().then(() => {browserSync.reload();});
+                    build(extname).then(() => {browserSync.reload();});
                 }
             } else if (extname === '.shtml') {
                 shtmlCompile(file).then(() => {browserSync.reload();});
             } else if (extname === '.js') {
                 babelCompile(file).then(() => {browserSync.reload();});
             } else {
-                fs.copyFileSync(file, destFile);
+                copyFile(file, destFile);
             }
         } else if (event === 'add') {
             if (extname === '.scss' && !path.basename(file).startsWith('_')) {
@@ -209,7 +199,7 @@ function startServer() {
             } else if (extname === '.js') {
                 babelCompile(file);
             } else if (!['.scss', '.js', '.shtml'].includes(extname)) {
-                fs.copyFileSync(file, destFile);
+                copyFile(file, destFile);
             }
         } else if (event == 'unlink') {
             // 删除文件
@@ -236,14 +226,54 @@ function startServer() {
     });
 }
 
+function build(ext) {
+    const cssList = [];
+    const jsList = [];
+    const htmlList = [];
+    const sourceList = [];
+    return readFileRecursive(root, dest => {
+        const destExtname = path.extname(dest);
+        if (destExtname === '.scss') {
+            if (!path.basename(dest).startsWith('_')) {
+                cssList.push(dest);
+            }
+        } else if (destExtname === '.js') {
+            jsList.push(dest);
+        } else if (destExtname === '.shtml') {
+            htmlList.push(dest);
+        } else {
+            sourceList.push(dest);
+        }
+    })
+    .then(() => {
+        let pList =[];
+        if (ext === '.scss') {
+            pList.push(sassRender(cssList));
+        } else if (ext === '.js') {
+            pList.push(babelCompile(jsList));
+        } else if (ext === '.shtml') {
+            pList.push(shtmlCompile(htmlList));
+        } else if (ext) {
+            pList.push(copyOtherFiles(sourceList));
+        } else {
+            pList = [
+                sassRender(cssList),
+                shtmlCompile(htmlList),
+                babelCompile(jsList),
+                copyOtherFiles(sourceList)
+            ];
+        }
+        return Promise.all(pList);
+    })
+    .catch(err => {
+        throw  err;
+    })
+}
+
 // main
 del('dist/**')
 .then(() => {
-    return Promise.all([
-        cssCompile(),
-        shtmlCompile(),
-        babelHandler()
-    ]);
+    return build();
 })
 .then(() => {
     const env = process.env.NODE_ENV;

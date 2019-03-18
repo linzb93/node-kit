@@ -2,15 +2,10 @@
 
 .a {
     width: 30px;
+    height: 54px;
     .b {
-        @include wid(130px);
-        height: 30px;
-        border: 1px solid #f00;
-        transform: translate(0, 4px);
-        transition: height 0.4s;
-        animation: fadeInUp 0.4s forwards;
-        border-radius: 4px;
-        background-size: contain;
-        flex: 0%;
+        @include wid(131px);
+        height: 31px;
+        border: 1px solid #ddd;
     }
 }

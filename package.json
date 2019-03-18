@@ -1,7 +1,8 @@
 {
   "scripts": {
     "start": "cross-env NODE_ENV=development node server",
-    "build": "cross-env NODE_ENV=production node server"
+    "build": "cross-env NODE_ENV=production node server",
+    "demo": "node server/test.js"
   },
   "browserslist": [
     "Chrome > 20",
