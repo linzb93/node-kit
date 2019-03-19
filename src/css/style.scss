@@ -1,11 +1,11 @@
-@import "mixin";
 
+@import "mixin";
 .a {
-    width: 30px;
-    height: 54px;
+    width: 31px;
+    height: 325px;
     .b {
-        @include wid(131px);
-        height: 31px;
-        border: 1px solid #ddd;
+        @include wid(230px);
+        color: #333;
+        border: 1px solid #000;
     }
 }
