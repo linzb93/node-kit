@@ -110,6 +110,18 @@ function sassRender(files) {
     const pMap = fileRet.map(file => {
         pSassRender({ file })
             .then(ret => {
+                if (process.env.NODE_ENV === 'production') {
+                    return cssPrefixer.process(ret.css, {from: undefined});
+                } else if (process.env.NODE_ENV === 'development') {
+                    return new Promise(resolve => {
+                        resolve(ret)
+                    });
+                }
+            })
+            .catch(err => {
+                console.log(err);
+            })
+            .then(ret => {
                 let destFile = file
                     .replace(new RegExp(`^${root}`), dist)
                     .replace(/.scss$/, '.css');

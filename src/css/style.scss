@@ -6,6 +6,7 @@
     .b {
         @include wid(230px);
         color: #333;
-        border: 1px solid #000;
+        border: 1px solid #ff0;
+        transition: transform 0.5s;
     }
 }
