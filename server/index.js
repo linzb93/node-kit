@@ -2,41 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const del = require('del');
 const browserSync = require('browser-sync').create();
-const shell = require('shelljs');
+const opn = require('opn');
 const postcss = require('postcss');
 const autoprefixer = require('autoprefixer');
+
+const utils = require('./utils');
+
 const cssPrefixer = postcss([autoprefixer]);
+const promisify = utils.promisify;
+
 const root = 'src'; // 源文件夹
 const dist = 'dist';// 目标文件夹
-
-// 检查有未捕捉的promise error
-process.on('unhandledRejection', (reason, p) => {
-    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
-});
-
-// 简单实现一个promisify
-function promisify(fn) {
-    return (...args) => (
-        new Promise((resolve, reject) => {
-            args.push((...cbArgs) => {
-                // 做error first兼容处理
-                let err, result;
-                if (cbArgs.length === 2) {
-                    err = cbArgs[0];
-                    result = cbArgs[1];
-                } else if (cbArgs.length === 1) {
-                    result = cbArgs[0];
-                }
-                if (err) {
-                    reject(err);
-                } else {
-                    resolve(result);
-                }
-            });
-            fn.apply(null, args);
-        })
-    )
-}
 
 // 函数promise化
 const shtml2Html = promisify(require('shtml2html'));
@@ -48,21 +24,25 @@ const pCopyFile = promisify(fs.copyFile);
 const mkdir = promisify(require('mkdirp'));
 const babelTransform = promisify(require('babel-core').transformFile);
 
-// 如果没有文件，先创建文件夹
+// 检查有未捕捉的promise error
+process.on('unhandledRejection', (reason, p) => {
+    console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+});
+
+// 如果没有文件，先创建文件夹，下同
 function writeFile(file, data, callback) {
     if (fs.existsSync(file)) {
         return pWriteFile(file, data, callback)
             .catch(err => {
                 console.log(err);
             });
-    } else {
-        return mkdir(path.dirname(file))
-            .then(() => {
-                return pWriteFile(file, data, callback);
-            }).catch(err => {
-                console.log(err);
-            });
     }
+    return mkdir(path.dirname(file))
+        .then(() => {
+            return pWriteFile(file, data, callback);
+        }).catch(err => {
+            console.log(err);
+        });
 }
 
 function copyFile(origin, dest, callback) {
@@ -71,14 +51,13 @@ function copyFile(origin, dest, callback) {
             .catch(err => {
                 console.log(err);
             });
-    } else {
-        return mkdir(path.dirname(dest))
-            .then(() => {
-                return pCopyFile(origin, dest, callback)
-            }).catch(err => {
-                console.log(err);
-            });
     }
+    return mkdir(path.dirname(dest))
+        .then(() => {
+            return pCopyFile(origin, dest, callback)
+        }).catch(err => {
+            console.log(err);
+        });
 }
 
 // 递归搜索文件
@@ -129,7 +108,7 @@ function sassRender(files) {
             })
             .catch(err => {
                 console.log(err);
-            })
+            });
     });
     return Promise.all(pMap).catch(err => {
         console.log(err);
@@ -290,7 +269,7 @@ function build(ext) {
         })
         .catch(err => {
             console.log(err);
-        })
+        });
 }
 
 // main
@@ -305,8 +284,7 @@ del('dist/**')
         } else if (env === 'production') {
             // 打包完成后打开项目根目录
             console.log('打包完成！');
-            // Windows命令行的命令
-            shell.exec('start .', { silent: true });
+            opn('./dist');
         }
     })
     .catch(err => {
