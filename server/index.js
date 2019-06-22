@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const del = require('del');
 const browserSync = require('browser-sync').create();
-const opn = require('opn');
+const open = require('open');
 const postcss = require('postcss');
 const autoprefixer = require('autoprefixer');
 
@@ -89,12 +89,11 @@ function sassRender(files) {
     const pMap = fileRet.map(file => {
         pSassRender({ file })
             .then(ret => {
-                if (process.env.NODE_ENV === 'production') {
-                    return cssPrefixer.process(ret.css, {from: undefined});
-                } else if (process.env.NODE_ENV === 'development') {
-                    return new Promise(resolve => {
-                        resolve(ret)
-                    });
+                const env = process.env.NODE_ENV;
+                if (env === 'production') {
+                    return cssPrefixer.process(ret.css, { from: undefined });
+                } else if (env === 'development') {
+                    return Promise.resolve(ret);
                 }
             })
             .catch(err => {
@@ -279,7 +278,7 @@ del('dist/**')
         } else if (env === 'production') {
             // 打包完成后打开项目根目录
             console.log('打包完成！');
-            opn('./dist');
+            open('./dist');
         }
     })
     .catch(err => {
