@@ -160,7 +160,12 @@ function startServer() {
     });
 
     browserSync.watch(`${root}/**`, { ignoreInitial: true }, (event, file) => {
-        // Windows系统下， 文件发生变化时会被短时间锁死，无法读取，因此延迟100ms。
+        /**
+         * Windows下，监听文件发生变化时，VSCode会锁死文件一段时间，
+         * 此时使用sass编译会提示无法访问该文件
+         * 目前只能通过延时100ms来解决
+         * Mac OS没有这个问题
+         */
         setTimeout(() => {
             const extname = path.extname(file);
             const filename = path.basename(file);
