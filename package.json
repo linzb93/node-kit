@@ -22,7 +22,7 @@
     "cross-env": "^5.1.5",
     "del": "^3.0.0",
     "mkdirp": "^0.5.1",
-    "node-sass": "^4.14.1",
+    "node-sass": "4.14.1",
     "open": "^6.3.0",
     "postcss": "^7.0.14",
     "shtml2html": "^1.0.5"
