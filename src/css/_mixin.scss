@@ -1,3 +1,22 @@
-@mixin wid($width) {
-    width: $width;
+// 三角形
+@mixin tri($dir, $size, $color) {
+    height: 0;
+    width: 0;
+    border: $size solid;
+    border-#{$dir}-width: 0;
+    @if $dir == 'top' {
+      	border-color: transparent transparent $color;
+    }@else if $dir == 'right' {
+      	border-color: transparent transparent transparent $color;
+    }@else if $dir == 'bottom' {
+      	border-color: $color transparent transparent;
+    }@else if $dir == 'left' {
+      	border-color: transparent $color transparent transparent;
+    }
+}
+// 超出省略
+@mixin textOverflow() {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }

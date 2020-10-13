@@ -61,5 +61,6 @@ typings/
 .next
 
 dist/
+src/
 .DS_Store
 package-lock.json

@@ -1,1 +1,0 @@
-let counter = count => count + 1;
